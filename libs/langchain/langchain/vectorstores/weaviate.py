@@ -175,7 +175,7 @@ class Weaviate(VectorStore):
                     data_object=data_properties,
                     class_name=self._index_name,
                     uuid=_id,
-                    vector=embeddings[i] if embeddings else None,
+                    vector=embeddings[i] if embeddings else None
                 )
                 ids.append(_id)
         return ids
@@ -424,6 +424,7 @@ class Weaviate(VectorStore):
 
         from weaviate import Tenant
         from weaviate.util import get_valid_uuid
+        from weaviate import Tenant
 
         index_name = kwargs.get("index_name", f"LangChain_{uuid4().hex}")
         embeddings = embedding.embed_documents(texts) if embedding else None
