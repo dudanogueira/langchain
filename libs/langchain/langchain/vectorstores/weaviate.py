@@ -143,7 +143,6 @@ class Weaviate(VectorStore):
             if not isinstance(texts, list):
                 texts = list(texts)
             embeddings = self._embedding.embed_documents(texts)
-
         with self._client.batch as batch:
             for i, text in enumerate(texts):
                 data_properties = {self._text_key: text}
@@ -165,7 +164,7 @@ class Weaviate(VectorStore):
                     data_object=data_properties,
                     class_name=self._index_name,
                     uuid=_id,
-                    vector=embeddings[i] if embeddings else None,
+                    vector=embeddings[i] if embeddings else None
                 )
                 ids.append(_id)
         return ids
@@ -377,6 +376,7 @@ class Weaviate(VectorStore):
         texts: List[str],
         embedding: Embeddings,
         metadatas: Optional[List[dict]] = None,
+        tenant: str = None,
         **kwargs: Any,
     ) -> Weaviate:
         """Construct Weaviate wrapper from raw documents.
@@ -404,16 +404,29 @@ class Weaviate(VectorStore):
         client = _create_weaviate_client(**kwargs)
 
         from weaviate.util import get_valid_uuid
+        from weaviate import Tenant
 
         index_name = kwargs.get("index_name", f"LangChain_{uuid4().hex}")
         embeddings = embedding.embed_documents(texts) if embedding else None
-        text_key = "text"
+        text_key = kwargs.get("text_key", "text")
         schema = _default_schema(index_name)
         attributes = list(metadatas[0].keys()) if metadatas else None
 
+        if tenant is not None:
+            #tenant = Tenant(name=tenant)
+            schema["multiTenancyConfig"] = {"enabled": True}
         # check whether the index already exists
         if not client.schema.contains(schema):
             client.schema.create_class(schema)
+        # if there is a tenant
+        if tenant is not None:
+            # and it's not in this schema alread
+            if not Tenant(name=tenant) in client.schema.get_class_tenants(index_name):
+                client.schema.add_class_tenants(
+                    class_name=index_name,  
+                    tenants=[Tenant(name=tenant)],
+                )
+
 
         with client.batch as batch:
             for i, text in enumerate(texts):
@@ -440,12 +453,11 @@ class Weaviate(VectorStore):
                     "data_object": data_properties,
                     "class_name": index_name,
                 }
+                if tenant is not None:
+                    params["tenant"] = tenant
                 if embeddings is not None:
                     params["vector"] = embeddings[i]
-
                 batch.add_data_object(**params)
-
-            batch.flush()
 
         relevance_score_fn = kwargs.get("relevance_score_fn")
         by_text: bool = kwargs.get("by_text", False)
