@@ -175,7 +175,7 @@ class Weaviate(VectorStore):
                     data_object=data_properties,
                     class_name=self._index_name,
                     uuid=_id,
-                    vector=embeddings[i] if embeddings else None
+                    vector=embeddings[i] if embeddings else None,
                 )
                 ids.append(_id)
         return ids
@@ -223,8 +223,8 @@ class Weaviate(VectorStore):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
         if kwargs.get("additional"):
             query_obj = query_obj.with_additional(kwargs.get("additional"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         result = query_obj.with_near_text(content).with_limit(k).do()
         if "errors" in result:
             raise ValueError(f"Error during query: {result['errors']}")
@@ -244,8 +244,8 @@ class Weaviate(VectorStore):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
         if kwargs.get("additional"):
             query_obj = query_obj.with_additional(kwargs.get("additional"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))            
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         result = query_obj.with_near_vector(vector).with_limit(k).do()
         if "errors" in result:
             raise ValueError(f"Error during query: {result['errors']}")
@@ -320,8 +320,8 @@ class Weaviate(VectorStore):
         query_obj = self._client.query.get(self._index_name, self._query_attrs)
         if kwargs.get("where_filter"):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))            
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         results = (
             query_obj.with_additional("vector")
             .with_near_vector(vector)
@@ -360,8 +360,8 @@ class Weaviate(VectorStore):
             content["certainty"] = kwargs.get("search_distance")
         query_obj = self._client.query.get(self._index_name, self._query_attrs)
 
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         embedded_query = self._embedding.embed_query(query)
         if not self._by_text:
             vector = {"vector": embedded_query}
@@ -424,7 +424,6 @@ class Weaviate(VectorStore):
 
         from weaviate import Tenant
         from weaviate.util import get_valid_uuid
-        from weaviate import Tenant
 
         index_name = kwargs.get("index_name", f"LangChain_{uuid4().hex}")
         embeddings = embedding.embed_documents(texts) if embedding else None
@@ -433,7 +432,7 @@ class Weaviate(VectorStore):
         attributes = list(metadatas[0].keys()) if metadatas else None
 
         if tenant is not None:
-            #tenant = Tenant(name=tenant)
+            # tenant = Tenant(name=tenant)
             schema["multiTenancyConfig"] = {"enabled": True}
         # check whether the index already exists
         if not client.schema.contains(schema):
@@ -443,10 +442,9 @@ class Weaviate(VectorStore):
             # and it's not in this schema alread
             if not Tenant(name=tenant) in client.schema.get_class_tenants(index_name):
                 client.schema.add_class_tenants(
-                    class_name=index_name,  
+                    class_name=index_name,
                     tenants=[Tenant(name=tenant)],
                 )
-
 
         with client.batch as batch:
             for i, text in enumerate(texts):
