@@ -94,6 +94,7 @@ class Weaviate(VectorStore):
             Callable[[float], float]
         ] = _default_score_normalizer,
         by_text: bool = True,
+        tenant: str = None,
     ):
         """Initialize with Weaviate client."""
         try:
@@ -114,8 +115,18 @@ class Weaviate(VectorStore):
         self._query_attrs = [self._text_key]
         self.relevance_score_fn = relevance_score_fn
         self._by_text = by_text
+        self._tenant = tenant
         if attributes is not None:
             self._query_attrs.extend(attributes)
+        # if tenant is provided, check if it exists on class
+        if self._tenant:
+            tenants = [
+                t.name for t in self._client.schema.get_class_tenants(self._index_name)
+            ]
+            if self._tenant not in tenants:
+                raise ValueError(
+                    f"Error: Class {self._index_name} has no tenant {self._tenant}"
+                )
 
     @property
     def embeddings(self) -> Optional[Embeddings]:
@@ -164,7 +175,7 @@ class Weaviate(VectorStore):
                     data_object=data_properties,
                     class_name=self._index_name,
                     uuid=_id,
-                    vector=embeddings[i] if embeddings else None
+                    vector=embeddings[i] if embeddings else None,
                 )
                 ids.append(_id)
         return ids
@@ -212,8 +223,8 @@ class Weaviate(VectorStore):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
         if kwargs.get("additional"):
             query_obj = query_obj.with_additional(kwargs.get("additional"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         result = query_obj.with_near_text(content).with_limit(k).do()
         if "errors" in result:
             raise ValueError(f"Error during query: {result['errors']}")
@@ -233,8 +244,8 @@ class Weaviate(VectorStore):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
         if kwargs.get("additional"):
             query_obj = query_obj.with_additional(kwargs.get("additional"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))            
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         result = query_obj.with_near_vector(vector).with_limit(k).do()
         if "errors" in result:
             raise ValueError(f"Error during query: {result['errors']}")
@@ -309,8 +320,8 @@ class Weaviate(VectorStore):
         query_obj = self._client.query.get(self._index_name, self._query_attrs)
         if kwargs.get("where_filter"):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))            
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         results = (
             query_obj.with_additional("vector")
             .with_near_vector(vector)
@@ -349,8 +360,8 @@ class Weaviate(VectorStore):
             content["certainty"] = kwargs.get("search_distance")
         query_obj = self._client.query.get(self._index_name, self._query_attrs)
 
-        if kwargs.get("tenant"):
-            query_obj = query_obj.with_tenant(kwargs.get("tenant"))
+        if kwargs.get("tenant") or self._tenant:
+            query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         embedded_query = self._embedding.embed_query(query)
         if not self._by_text:
             vector = {"vector": embedded_query}
@@ -411,8 +422,8 @@ class Weaviate(VectorStore):
 
         client = _create_weaviate_client(**kwargs)
 
-        from weaviate.util import get_valid_uuid
         from weaviate import Tenant
+        from weaviate.util import get_valid_uuid
 
         index_name = kwargs.get("index_name", f"LangChain_{uuid4().hex}")
         embeddings = embedding.embed_documents(texts) if embedding else None
@@ -421,7 +432,7 @@ class Weaviate(VectorStore):
         attributes = list(metadatas[0].keys()) if metadatas else None
 
         if tenant is not None:
-            #tenant = Tenant(name=tenant)
+            # tenant = Tenant(name=tenant)
             schema["multiTenancyConfig"] = {"enabled": True}
         # check whether the index already exists
         if not client.schema.contains(schema):
@@ -431,10 +442,9 @@ class Weaviate(VectorStore):
             # and it's not in this schema alread
             if not Tenant(name=tenant) in client.schema.get_class_tenants(index_name):
                 client.schema.add_class_tenants(
-                    class_name=index_name,  
+                    class_name=index_name,
                     tenants=[Tenant(name=tenant)],
                 )
-
 
         with client.batch as batch:
             for i, text in enumerate(texts):
@@ -480,16 +490,42 @@ class Weaviate(VectorStore):
             by_text=by_text,
         )
 
-    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> None:
+    def delete(
+        self,
+        ids: Optional[List[str]] = None,
+        batch: Optional[bool] = False,
+        dry_run: Optional[bool] = False,
+        **kwargs: Any,
+    ) -> None:
         """Delete by vector IDs.
 
         Args:
             ids: List of ids to delete.
         """
-
         if ids is None:
             raise ValueError("No ids provided to delete.")
 
-        # TODO: Check if this can be done in bulk
-        for id in ids:
-            self._client.data_object.delete(uuid=id)
+        class_name = kwargs.get("index_name", self._index_name)
+
+        tenant = kwargs.get("tenant", self._tenant)
+
+        # leaving bulk as optional to keep retrocompatibility
+        # bulk deletion only after Weaviate 1.20
+        if batch:
+            return self._client.batch.delete_objects(
+                class_name=class_name,
+                # Same `where` filter as in the GraphQL API
+                where={
+                    "path": ["id"],
+                    "operator": "ContainsAny",
+                    "valueTextArray": ids,
+                },
+                dry_run=dry_run,
+                output="verbose",
+                tenant=tenant,
+            )
+        else:
+            for id in ids:
+                self._client.data_object.delete(
+                    uuid=id, class_name=class_name, tenant=tenant
+                )
