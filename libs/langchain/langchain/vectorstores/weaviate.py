@@ -435,7 +435,7 @@ class Weaviate(VectorStore):
         attributes = list(metadatas[0].keys()) if metadatas else None
 
         if tenant is not None:
-            #tenant = Tenant(name=tenant)
+            # tenant = Tenant(name=tenant)
             schema["multiTenancyConfig"] = {"enabled": True}
         # check whether the index already exists
         if not client.schema.contains(schema):
@@ -445,10 +445,9 @@ class Weaviate(VectorStore):
             # and it's not in this schema alread
             if not Tenant(name=tenant) in client.schema.get_class_tenants(index_name):
                 client.schema.add_class_tenants(
-                    class_name=index_name,  
+                    class_name=index_name,
                     tenants=[Tenant(name=tenant)],
                 )
-
 
         with client.batch as batch:
             for i, text in enumerate(texts):
