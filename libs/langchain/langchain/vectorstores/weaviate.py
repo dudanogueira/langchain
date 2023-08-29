@@ -244,7 +244,9 @@ class Weaviate(VectorStore):
             query_obj = query_obj.with_where(kwargs.get("where_filter"))
         if kwargs.get("additional"):
             query_obj = query_obj.with_additional(kwargs.get("additional"))
+        print("AAAAAA", kwargs.get("tenant"), self._tenant)
         if kwargs.get("tenant") or self._tenant:
+            print("BBBBBB")
             query_obj = query_obj.with_tenant(kwargs.get("tenant", self._tenant))
         result = query_obj.with_near_vector(vector).with_limit(k).do()
         if "errors" in result:
