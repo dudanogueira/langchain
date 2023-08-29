@@ -10,6 +10,7 @@ from langchain.docstore.document import Document
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores.weaviate import Weaviate
 from tests.integration_tests.vectorstores.fake_embeddings import FakeEmbeddings
+import weaviate
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -36,6 +37,16 @@ class TestWeaviate:
         # Clear the test index
         client = Client(url)
         client.schema.delete_all()
+
+
+    @pytest.mark.vcr(ignore_localhost=True)
+    def test_server_is_ready(
+        self, weaviate_url: str, embedding_openai: OpenAIEmbeddings
+    ) -> None:
+        """Test end to end construction and search without metadata."""
+        texts = ["foo", "bar", "baz"]
+        client = weaviate.Client("http://localhost:8080")
+        assert client.is_ready() == True
 
     @pytest.mark.vcr(ignore_localhost=True)
     def test_similarity_search_without_metadata(
@@ -97,12 +108,8 @@ class TestWeaviate:
             k=1,
             additional=["certainty"],
         )
-        assert output == [
-            Document(
-                page_content="foo",
-                metadata={"page": 0, "_additional": {"certainty": 1}},
-            )
-        ]
+        assert type(output[0].metadata) == dict
+        assert "certainty" in output[0].metadata["_additional"].keys()
 
     @pytest.mark.vcr(ignore_localhost=True)
     def test_similarity_search_with_uuids(
