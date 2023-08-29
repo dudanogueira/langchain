@@ -10,6 +10,7 @@ from langchain.docstore.document import Document
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores.weaviate import Weaviate
 from tests.integration_tests.vectorstores.fake_embeddings import FakeEmbeddings
+
 import weaviate
 
 logging.basicConfig(level=logging.DEBUG)
@@ -37,16 +38,6 @@ class TestWeaviate:
         # Clear the test index
         client = Client(url)
         client.schema.delete_all()
-
-
-    @pytest.mark.vcr(ignore_localhost=True)
-    def test_server_is_ready(
-        self, weaviate_url: str, embedding_openai: OpenAIEmbeddings
-    ) -> None:
-        """Test end to end construction and search without metadata."""
-        texts = ["foo", "bar", "baz"]
-        client = weaviate.Client("http://localhost:8080")
-        assert client.is_ready() == True
 
     @pytest.mark.vcr(ignore_localhost=True)
     def test_similarity_search_without_metadata(
@@ -252,3 +243,31 @@ class TestWeaviate:
         )
         assert output[0] == Document(page_content="foo")
         assert output[1] != Document(page_content="foo")
+
+    def test_delete_objects_with_given_uuids(self, weaviate_url: str) -> None:
+        texts = ["foo", "bar", "baz"]
+        embedding = FakeEmbeddings()
+        uuids = [uuid.uuid5(uuid.NAMESPACE_DNS, text) for text in texts]
+
+        docsearch = Weaviate.from_texts(
+            texts,
+            embedding=embedding,
+            weaviate_url=weaviate_url,
+            uuids=uuids,
+            index_name="DeleteObjects",
+        )
+        client = weaviate.Client(url=weaviate_url)
+        query = client.query.get("DeleteObjects", ["text"]).with_additional("id")
+        full_data = (
+            query.do()
+        )
+        # before deletion
+        assert len(full_data["data"]["Get"]["DeleteObjects"]) == 3
+        # delete objects
+        docsearch.delete(ids=[uuids[0], uuids[1]])
+        # query again
+        partial_data = (
+            query.do()
+        )
+        # after deletion
+        assert len(partial_data["data"]["Get"]["DeleteObjects"]) == 1
