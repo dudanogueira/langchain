@@ -438,7 +438,7 @@ class Weaviate(VectorStore):
             # tenant = Tenant(name=tenant)
             schema["multiTenancyConfig"] = {"enabled": True}
         # check whether the index already exists
-        if not client.schema.contains(schema):
+        if not client.schema.exists(index_name):
             client.schema.create_class(schema)
         # if there is a tenant
         if tenant is not None:
